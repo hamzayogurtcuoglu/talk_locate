@@ -9,7 +9,11 @@ API_KEY = "API_KEY"
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
 
 def record_audio():
+    print("hamza")
+
     recognizer = sr.Recognizer()
+    print("hamza1")
+
     with sr.Microphone() as source:
         print("Listening...")
         try:
