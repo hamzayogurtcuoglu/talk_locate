@@ -245,7 +245,7 @@ export default function App() {
     canvas.requestRenderAll();
   }, []);
 
-  const handleWallMouseUp = useCallback((e: fabric.IEvent) => {
+  const handleWallMouseUp = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !wallStartRef.current || !tempWallRectRef.current || !tempDimensionTextRef.current)
       return;
