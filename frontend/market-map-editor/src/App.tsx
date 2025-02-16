@@ -436,48 +436,366 @@ export default function App() {
   const saveMap = async () => {
     if (!canvasRef.current) return;
     try {
-      
-      // mapId state'si, ekrandaki dosya adı giriş alanından geliyor.
-      // Eğer kullanıcı bir şey girmediyse defaultMapCounter değeri kullanılıyor.
       let fileName = mapId;
       if (!fileName || fileName.trim() === "") {
         fileName = defaultMapCounter.toString();
         setDefaultMapCounter(defaultMapCounter + 1);
       }
-      const json = canvasRef.current.toJSON();
-      // Dosya ismi ve harita verisini backend'e gönderiyoruz.
-      const response = await fetch('http://localhost:8080/api/maps', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+  
+      // Fabric canvas'ından JSON alınır.
+      const fabricJson = canvasRef.current.toJSON();
+      const objects = fabricJson.objects || [];
+  
+      // Sonuç nesneleri için konteynerler
+      let entrance = null;
+      let exit = null;
+      let currentLocation = null;
+      let shelves: any[] = [];
+      let walls: any[] = [];
+      let looseProducts: any[] = [];
+  
+      // Sayaçlar (id'leri sıralı atamak için)
+      let shelfCounter = 1;
+      let wallCounter = 1;
+      let productCounter = 1;
+  
+      // Raf (shelf) tanımlaması için rafların referanslarını saklıyoruz.
+      const shelfRects: {
+        id: string;
+        position: { x: number; y: number };
+        dimensions: { width: number; height: number };
+        products: any[];
+      }[] = [];
+  
+      // Tüm fabric nesneleri üzerinde döngü
+      objects.forEach((obj: any) => {
+        // Eğer nesne bir grup ise: marker veya duvar kontrolü
+        if (obj.type === "group" && Array.isArray(obj.objects)) {
+          // Grup içindeki text nesnelerini toplayalım.
+          const textObjs = obj.objects.filter((o: any) => o.type === "text");
+          if (textObjs.length > 0) {
+            const textValue: string = textObjs[0].text;
+            // Marker kontrolü:
+            if (textValue === "Entrance") {
+              entrance = {
+                id: "entrance",
+                position: { x: obj.left, y: obj.top },
+                details: "Entrance"
+              };
+            } else if (textValue === "Exit") {
+              exit = {
+                id: "exit",
+                position: { x: obj.left, y: obj.top },
+                details: "Exit"
+              };
+            } else if (textValue === "📍") {
+              currentLocation = {
+                id: "currentLocation",
+                position: { x: obj.left, y: obj.top },
+                details: "Current Location"
+              };
+            }
+            // Eğer metin içinde "cm" geçiyorsa, bu bir duvar olarak değerlendirilir.
+            else if (textValue && textValue.includes("cm")) {
+              const wallId = "wall_" + wallCounter;
+              wallCounter++;
+              // Duvarın başlangıç ve bitiş noktalarını hesaplayalım:
+              const angleRad = (obj.angle || 0) * (Math.PI / 180);
+              const halfWidth = ((obj.width || 0) * (obj.scaleX || 1)) / 2;
+              const start = {
+                x: obj.left - halfWidth * Math.cos(angleRad),
+                y: obj.top - halfWidth * Math.sin(angleRad)
+              };
+              const end = {
+                x: obj.left + halfWidth * Math.cos(angleRad),
+                y: obj.top + halfWidth * Math.sin(angleRad)
+              };
+              // Duvar uzunluğu, text içerisindeki sayı alınarak belirlenebilir:
+              const lengthCm = parseInt(textValue); // Örneğin "403cm" → 403
+              walls.push({
+                id: wallId,
+                start,
+                end,
+                lengthCm
+              });
+            }
+            // Diğer grup nesnelerini burada yoksayabiliriz.
+          }
+        }
+        // Eğer nesne tipi "rect" ise: raf kontrolü
+        else if (obj.type === "rect") {
+          // Raflar, addShelf fonksiyonunda oluşturulduklarında fill "#bdbdbd", stroke "#616161" olarak ayarlanıyor.
+          if (obj.fill === "#bdbdbd" && obj.stroke === "#616161") {
+            const shelfId = "shelf_" + shelfCounter;
+            shelfCounter++;
+            const shelf = {
+              id: shelfId,
+              position: { x: obj.left, y: obj.top },
+              dimensions: {
+                width: (obj.width || 0) * (obj.scaleX || 1),
+                height: (obj.height || 0) * (obj.scaleY || 1)
+              },
+              products: []
+            };
+            shelves.push(shelf);
+            shelfRects.push(shelf);
+          }
+        }
+        // Eğer nesne tipi "textbox" ise: ürün kontrolü
+        else if (obj.type === "textbox") {
+          // Ürünler addProduct fonksiyonunda "#2c3e50" rengi ile oluşturuluyor.
+          if (obj.fill === "#2c3e50") {
+            const productId = "product_" + productCounter;
+            productCounter++;
+            const product = {
+              id: productId,
+              name: obj.text,
+              position: { x: obj.left, y: obj.top }
+            };
+            // Ürünü herhangi bir rafın içine düşüyorsa, o rafın ürün listesine ekleyelim.
+            let attached = false;
+            shelfRects.forEach((shelf) => {
+              const shelfWidth = shelf.dimensions.width;
+              const shelfHeight = shelf.dimensions.height;
+              // Raf nesneleri "origin": "center" olduğundan, bounding box hesaplaması:
+              if (
+                obj.left >= shelf.position.x - shelfWidth / 2 &&
+                obj.left <= shelf.position.x + shelfWidth / 2 &&
+                obj.top >= shelf.position.y - shelfHeight / 2 &&
+                obj.top <= shelf.position.y + shelfHeight / 2
+              ) {
+                shelf.products.push(product);
+                attached = true;
+              }
+            });
+            if (!attached) {
+              looseProducts.push(product);
+            }
+          }
+        }
+        // Diğer nesne tipleri (örneğin standalone "textbox" veya "rect" fakat farklı özellikte) yoksayılabilir.
+      });
+  
+      // Nihai JSON yapısını oluşturuyoruz.
+      const mapJson = {
+        meta: {
+          id: fileName,
+          name: "Market Map",
+          version: "1.0",
+          createdAt: new Date().toISOString(),
+          author: "unknown",
+          description:
+            "Map including entrance, exit, current location, shelves with attached products, and walls for corridors."
         },
-        body: JSON.stringify({ filename: fileName, mapData: json })
+        layout: {
+          width: CANVAS_WIDTH,
+          height: CANVAS_HEIGHT,
+          gridSize: GRID_SIZE,
+          wallThickness: WALL_THICKNESS,
+          pixelsPerCm: PIXELS_PER_CM
+        },
+        elements: {
+          markers: {
+            entrance,
+            exit,
+            currentLocation
+          },
+          shelves,
+          looseProducts,
+          walls
+        }
+      };
+  
+      // JSON verisini backend'e gönderiyoruz.
+      const response = await fetch("http://localhost:8080/api/maps", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ filename: fileName, mapData: mapJson })
       });
       const savedId = await response.text();
       setMapId(savedId);
       alert(`Map saved successfully! ID: ${savedId}`);
     } catch (error) {
-      alert(`Failed to save map: ${error}`);
+      console.error(error);
+      alert("Failed to save map");
     }
   };
+  
+  //// kaydedilen haritayı doğru bir şekilde yükleyemiyor. bu hata çözülecek
 
   const loadMap = async () => {
     if (!canvasRef.current) return;
-    const loadId = prompt('Enter Map ID:');
+    const loadId = prompt("Enter Map ID:");
     if (!loadId) return;
+  
     try {
+      // Canvas viewport transform'unu sıfırlıyoruz.
+      canvasRef.current.setViewportTransform([1, 0, 0, 1, 0, 0]);
+      // Canvas'ı temizle ve boyut, arka plan ayarlarını uygula.
+      canvasRef.current.clear();
+  
       const response = await fetch(`http://localhost:8080/api/maps/${loadId}`);
-      if (!response.ok) throw new Error('Map not found');
-      const data = await response.json();
-      canvasRef.current.loadFromJSON(data, () => {
-        canvasRef.current?.renderAll();
-        initializeMarkers();
-      });
+      const data = await response.json(); // { filename, mapData }
+      const mapData = data.mapData;
+  
+      // Layout bilgilerine göre canvas ayarları.
+      canvasRef.current.setWidth(mapData.layout.width);
+      canvasRef.current.setHeight(mapData.layout.height);
+      const bgColor = mapData.layout.backgroundColor || "#fafafa";
+      canvasRef.current.setBackgroundColor(bgColor, canvasRef.current.renderAll.bind(canvasRef.current));
+  
+      // Marker'ları yükle
+      if (mapData.elements.markers) {
+        const markersData = mapData.elements.markers;
+        if (markersData.entrance) {
+          const entranceObj = createMarker("entrance");
+          entranceObj.set({
+            left: markersData.entrance.position.x,
+            top: markersData.entrance.position.y
+          });
+          canvasRef.current.add(entranceObj);
+          setMarkers((prev) => ({ ...prev, entrance: entranceObj }));
+        }
+        if (markersData.exit) {
+          const exitObj = createMarker("exit");
+          exitObj.set({
+            left: markersData.exit.position.x,
+            top: markersData.exit.position.y
+          });
+          canvasRef.current.add(exitObj);
+          setMarkers((prev) => ({ ...prev, exit: exitObj }));
+        }
+        if (markersData.currentLocation) {
+          const locObj = createMarker("location");
+          locObj.set({
+            left: markersData.currentLocation.position.x,
+            top: markersData.currentLocation.position.y
+          });
+          canvasRef.current.add(locObj);
+          setMarkers((prev) => ({ ...prev, location: locObj }));
+        }
+      }
+  
+      // Raflar ve ürünler için nesneleri yükle
+      const loadedShelfMap: Record<string, fabric.Rect> = {};
+      if (mapData.elements.shelves && Array.isArray(mapData.elements.shelves)) {
+        mapData.elements.shelves.forEach((shelf: any) => {
+          // Rafı, origin "center" olacak şekilde oluşturuyoruz.
+          const shelfObj = new fabric.Rect({
+            left: shelf.position.x,
+            top: shelf.position.y,
+            width: shelf.dimensions.width,
+            height: shelf.dimensions.height,
+            fill: "#bdbdbd",
+            stroke: "#616161",
+            strokeWidth: 1,
+            originX: "center",
+            originY: "center",
+            data: { isShelf: true, id: shelf.id }
+          });
+          canvasRef.current.add(shelfObj);
+          loadedShelfMap[shelf.id] = shelfObj;
+  
+          // Raf içerisindeki ürünleri ekle.
+          if (shelf.products && Array.isArray(shelf.products)) {
+            shelf.products.forEach((prod: any) => {
+              let prodX = prod.position.x;
+              let prodY = prod.position.y;
+              // Eğer ürün, rafla ilişkilendirilmişse relative offset kullan.
+              if (prod.relativePosition) {
+                prodX = shelfObj.left + prod.relativePosition.x;
+                prodY = shelfObj.top + prod.relativePosition.y;
+              }
+              const prodObj = new fabric.Textbox(prod.name, {
+                left: prodX,
+                top: prodY,
+                width: 120,
+                fontSize: 14,
+                fill: "#2c3e50",
+                textAlign: "center",
+                originX: "center",
+                originY: "center",
+                data: { isProduct: true, parentShelf: shelf.id }
+              });
+              canvasRef.current.add(prodObj);
+            });
+          }
+        });
+      }
+  
+      // Raf dışı ürünler
+      if (mapData.elements.looseProducts && Array.isArray(mapData.elements.looseProducts)) {
+        mapData.elements.looseProducts.forEach((prod: any) => {
+          const prodObj = new fabric.Textbox(prod.name, {
+            left: prod.position.x,
+            top: prod.position.y,
+            width: 120,
+            fontSize: 14,
+            fill: "#2c3e50",
+            textAlign: "center",
+            originX: "center",
+            originY: "center",
+            data: { isProduct: true }
+          });
+          canvasRef.current.add(prodObj);
+        });
+      }
+  
+      // Duvarları yükle
+      if (mapData.elements.walls && Array.isArray(mapData.elements.walls)) {
+        mapData.elements.walls.forEach((wall: any) => {
+          // Duvarın merkezini, mesafesini ve açısını hesapla.
+          const centerX = (wall.start.x + wall.end.x) / 2;
+          const centerY = (wall.start.y + wall.end.y) / 2;
+          const dx = wall.end.x - wall.start.x;
+          const dy = wall.end.y - wall.start.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
+  
+          // Duvarı origin "center" olacak şekilde oluştur.
+          const wallObj = new fabric.Rect({
+            left: centerX,
+            top: centerY,
+            width: distance,
+            height: WALL_THICKNESS,
+            angle: angleDeg,
+            fill: "#757575",
+            stroke: "#424242",
+            strokeWidth: 1,
+            originX: "center",
+            originY: "center",
+            data: { isWall: true, id: wall.id }
+          });
+          canvasRef.current.add(wallObj);
+  
+          // Duvar uzunluğu etiketini, duvardan offset olacak şekilde yerleştir.
+          const textObj = new fabric.Text(`${wall.lengthCm}cm`, {
+            fontSize: 14,
+            fill: "#424242",
+            originX: "center",
+            originY: "center",
+            angle: angleDeg
+          });
+          const offset = 20;
+          const textX = centerX - offset * Math.sin(angleDeg * (Math.PI / 180));
+          const textY = centerY + offset * Math.cos(angleDeg * (Math.PI / 180));
+          textObj.set({ left: textX, top: textY });
+          canvasRef.current.add(textObj);
+        });
+      }
+  
+      canvasRef.current.renderAll();
       setMapId(loadId);
     } catch (error) {
-      alert('Failed to load map');
+      console.error(error);
+      alert("Failed to load map");
     }
   };
+  
+  
+  
 
   const initializeMarkers = () => {
     const canvas = canvasRef.current;

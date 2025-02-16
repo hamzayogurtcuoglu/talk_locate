@@ -48,3 +48,18 @@ export default tseslint.config({
   },
 })
 ```
+
+
+
+------
+Projenin ilk kurulumunda 
+```bash
+npm install
+```
+
+ile dosyalar kurulur.
+Daha sonra çalıştırmak için
+```bash
+npm run dev
+```
+komutuyla çalıştırılır.
