@@ -10,6 +10,7 @@ services:
 
   backend:
     build: ./backend
+    container_name: backend
     depends_on:
       - mongodb
     environment:
@@ -19,8 +20,20 @@ services:
 
   frontend:
     build: ./frontend/market-map-editor
+    container_name: frontend
     ports:
-      - "3000:80"
+      - "3000:80"   # Nginx üzerinden sunulacaksa iç port 80 kullanılabilir.
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
 volumes:
   mongo-data:

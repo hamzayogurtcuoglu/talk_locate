@@ -607,7 +607,7 @@ export default function App() {
       };
   
       // JSON verisini backend'e gönderiyoruz.
-      const response = await fetch("http://localhost:8080/api/maps", {
+      const response = await fetch("/api/maps", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -627,26 +627,26 @@ export default function App() {
 
   const loadMap = async () => {
     if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
     const loadId = prompt("Enter Map ID:");
     if (!loadId) return;
   
     try {
-      // Canvas viewport transform'unu sıfırlıyoruz.
-      canvasRef.current.setViewportTransform([1, 0, 0, 1, 0, 0]);
-      // Canvas'ı temizle ve boyut, arka plan ayarlarını uygula.
-      canvasRef.current.clear();
+      // Canvas viewport'u sıfırlayıp temizliyoruz.
+      canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+      canvas.clear();
   
-      const response = await fetch(`http://localhost:8080/api/maps/${loadId}`);
+      const response = await fetch(`/api/maps/${loadId}`);
       const data = await response.json(); // { filename, mapData }
       const mapData = data.mapData;
   
-      // Layout bilgilerine göre canvas ayarları.
-      canvasRef.current.setWidth(mapData.layout.width);
-      canvasRef.current.setHeight(mapData.layout.height);
+      // Layout bilgilerine göre canvas ayarlarını yapıyoruz.
+      canvas.setWidth(mapData.layout.width);
+      canvas.setHeight(mapData.layout.height);
       const bgColor = mapData.layout.backgroundColor || "#fafafa";
-      canvasRef.current.setBackgroundColor(bgColor, canvasRef.current.renderAll.bind(canvasRef.current));
+      canvas.setBackgroundColor(bgColor, canvas.renderAll.bind(canvas));
   
-      // Marker'ları yükle
+      // Marker'ları yükleme
       if (mapData.elements.markers) {
         const markersData = mapData.elements.markers;
         if (markersData.entrance) {
@@ -655,7 +655,7 @@ export default function App() {
             left: markersData.entrance.position.x,
             top: markersData.entrance.position.y
           });
-          canvasRef.current.add(entranceObj);
+          canvas.add(entranceObj);
           setMarkers((prev) => ({ ...prev, entrance: entranceObj }));
         }
         if (markersData.exit) {
@@ -664,7 +664,7 @@ export default function App() {
             left: markersData.exit.position.x,
             top: markersData.exit.position.y
           });
-          canvasRef.current.add(exitObj);
+          canvas.add(exitObj);
           setMarkers((prev) => ({ ...prev, exit: exitObj }));
         }
         if (markersData.currentLocation) {
@@ -673,16 +673,15 @@ export default function App() {
             left: markersData.currentLocation.position.x,
             top: markersData.currentLocation.position.y
           });
-          canvasRef.current.add(locObj);
+          canvas.add(locObj);
           setMarkers((prev) => ({ ...prev, location: locObj }));
         }
       }
   
-      // Raflar ve ürünler için nesneleri yükle
+      // Raflar ve raftaki ürünleri yükleme
       const loadedShelfMap: Record<string, fabric.Rect> = {};
       if (mapData.elements.shelves && Array.isArray(mapData.elements.shelves)) {
         mapData.elements.shelves.forEach((shelf: any) => {
-          // Rafı, origin "center" olacak şekilde oluşturuyoruz.
           const shelfObj = new fabric.Rect({
             left: shelf.position.x,
             top: shelf.position.y,
@@ -695,15 +694,15 @@ export default function App() {
             originY: "center",
             data: { isShelf: true, id: shelf.id }
           });
-          canvasRef.current.add(shelfObj);
+          canvas.add(shelfObj);
           loadedShelfMap[shelf.id] = shelfObj;
   
-          // Raf içerisindeki ürünleri ekle.
+          // Raf içerisindeki ürünleri ekleme
           if (shelf.products && Array.isArray(shelf.products)) {
             shelf.products.forEach((prod: any) => {
               let prodX = prod.position.x;
               let prodY = prod.position.y;
-              // Eğer ürün, rafla ilişkilendirilmişse relative offset kullan.
+              // Eğer ürün, rafta relative offset ile saklanıyorsa
               if (prod.relativePosition) {
                 prodX = shelfObj.left + prod.relativePosition.x;
                 prodY = shelfObj.top + prod.relativePosition.y;
@@ -719,13 +718,13 @@ export default function App() {
                 originY: "center",
                 data: { isProduct: true, parentShelf: shelf.id }
               });
-              canvasRef.current.add(prodObj);
+              canvas.add(prodObj);
             });
           }
         });
       }
   
-      // Raf dışı ürünler
+      // Raf dışındaki ürünler (loose products)
       if (mapData.elements.looseProducts && Array.isArray(mapData.elements.looseProducts)) {
         mapData.elements.looseProducts.forEach((prod: any) => {
           const prodObj = new fabric.Textbox(prod.name, {
@@ -739,14 +738,13 @@ export default function App() {
             originY: "center",
             data: { isProduct: true }
           });
-          canvasRef.current.add(prodObj);
+          canvas.add(prodObj);
         });
       }
   
-      // Duvarları yükle
+      // Duvarları yükleme
       if (mapData.elements.walls && Array.isArray(mapData.elements.walls)) {
         mapData.elements.walls.forEach((wall: any) => {
-          // Duvarın merkezini, mesafesini ve açısını hesapla.
           const centerX = (wall.start.x + wall.end.x) / 2;
           const centerY = (wall.start.y + wall.end.y) / 2;
           const dx = wall.end.x - wall.start.x;
@@ -754,7 +752,7 @@ export default function App() {
           const distance = Math.sqrt(dx * dx + dy * dy);
           const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
   
-          // Duvarı origin "center" olacak şekilde oluştur.
+          // Duvarı origin "center" olacak şekilde oluşturma.
           const wallObj = new fabric.Rect({
             left: centerX,
             top: centerY,
@@ -768,9 +766,9 @@ export default function App() {
             originY: "center",
             data: { isWall: true, id: wall.id }
           });
-          canvasRef.current.add(wallObj);
+          canvas.add(wallObj);
   
-          // Duvar uzunluğu etiketini, duvardan offset olacak şekilde yerleştir.
+          // Duvar uzunluğu etiketini yerleştirme.
           const textObj = new fabric.Text(`${wall.lengthCm}cm`, {
             fontSize: 14,
             fill: "#424242",
@@ -782,32 +780,18 @@ export default function App() {
           const textX = centerX - offset * Math.sin(angleDeg * (Math.PI / 180));
           const textY = centerY + offset * Math.cos(angleDeg * (Math.PI / 180));
           textObj.set({ left: textX, top: textY });
-          canvasRef.current.add(textObj);
+          canvas.add(textObj);
         });
       }
   
-      canvasRef.current.renderAll();
+      canvas.renderAll();
       setMapId(loadId);
     } catch (error) {
       console.error(error);
       alert("Failed to load map");
     }
-  };
-  
-  
-  
+  };  
 
-  const initializeMarkers = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const markerObjects = canvas.getObjects().filter(obj => obj.data?.markerType);
-    const newMarkers = { entrance: null, exit: null, location: null } as Record<SpecialMarkerType, fabric.Object | null>;
-    markerObjects.forEach(obj => {
-      const type = obj.data.markerType as SpecialMarkerType;
-      newMarkers[type] = obj;
-    });
-    setMarkers(newMarkers);
-  };
 
   return (
     <Box sx={{ p: 4 }}>
